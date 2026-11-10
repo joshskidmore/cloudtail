@@ -4,8 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/TylerBrock/saw/blade"
-	"github.com/TylerBrock/saw/config"
+	"github.com/joshskidmore/cloudtail/config"
 	"github.com/spf13/cobra"
 )
 
@@ -23,9 +22,12 @@ var streamsCommand = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		streamsConfig.Group = args[0]
-		b := blade.NewBlade(&streamsConfig, &awsConfig, nil)
+		b := newClient(cmd.Context(), &streamsConfig, nil)
 
-		logStreams := b.GetLogStreams()
+		logStreams, err := b.GetLogStreams(cmd.Context())
+		if err != nil {
+			fatal(err)
+		}
 		for _, stream := range logStreams {
 			fmt.Println(*stream.LogStreamName)
 		}

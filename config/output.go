@@ -11,7 +11,6 @@ type OutputConfiguration struct {
 	Expand    bool
 	Invert    bool
 	RawString bool
-	NoColor   bool
 }
 
 func (c *OutputConfiguration) Formatter() *colorjson.Formatter {
@@ -27,10 +26,6 @@ func (c *OutputConfiguration) Formatter() *colorjson.Formatter {
 
 	if c.Invert {
 		formatter.KeyColor = color.New(color.FgBlack)
-	}
-
-	if c.NoColor {
-		color.NoColor = true
 	}
 
 	return formatter

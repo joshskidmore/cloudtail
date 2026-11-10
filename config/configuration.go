@@ -2,11 +2,12 @@ package config
 
 import (
 	"errors"
-	"sort"
+	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 )
 
 type Configuration struct {
@@ -15,7 +16,6 @@ type Configuration struct {
 	Start      string
 	End        string
 	Filter     string
-	Streams    []*cloudwatchlogs.LogStream
 	Descending bool
 	OrderBy    string
 }
@@ -28,9 +28,10 @@ var absoluteTimeFormats = []string{
 	"2006-01-02 15:04:05", // Simple date & time
 }
 
-// Parse the input string into a time.Time object.
+// ParseTime parses a relative duration (e.g. "-5m") or an absolute time.
+// Absolute times without a zone are in the zone of currentTime.
 // Provide the currentTime as a parameter to support relative time.
-func getTime(timeStr string, currentTime time.Time) (time.Time, error) {
+func ParseTime(timeStr string, currentTime time.Time) (time.Time, error) {
 	relative, err := time.ParseDuration(timeStr)
 	if err == nil {
 		return currentTime.Add(relative), nil
@@ -38,7 +39,7 @@ func getTime(timeStr string, currentTime time.Time) (time.Time, error) {
 
 	// Iterate over available absolute time formats until we find one that works
 	for _, timeFormat := range absoluteTimeFormats {
-		absolute, err := time.Parse(timeFormat, timeStr)
+		absolute, err := time.ParseInLocation(timeFormat, timeStr, currentTime.Location())
 
 		if err == nil {
 			return absolute, err
@@ -51,78 +52,57 @@ func getTime(timeStr string, currentTime time.Time) (time.Time, error) {
 func (c *Configuration) DescribeLogGroupsInput() *cloudwatchlogs.DescribeLogGroupsInput {
 	input := cloudwatchlogs.DescribeLogGroupsInput{}
 	if c.Prefix != "" {
-		input.SetLogGroupNamePrefix(c.Prefix)
+		input.LogGroupNamePrefix = aws.String(c.Prefix)
 	}
 	return &input
 }
 
 func (c *Configuration) DescribeLogStreamsInput() *cloudwatchlogs.DescribeLogStreamsInput {
 	input := cloudwatchlogs.DescribeLogStreamsInput{}
-	input.SetLogGroupName(c.Group)
-	input.SetDescending(c.Descending)
+	input.LogGroupName = aws.String(c.Group)
+	input.Descending = aws.Bool(c.Descending)
 
 	if c.OrderBy != "" {
-		input.SetOrderBy(c.OrderBy)
+		input.OrderBy = types.OrderBy(c.OrderBy)
 	}
 
 	if c.Prefix != "" {
-		input.SetLogStreamNamePrefix(c.Prefix)
+		input.LogStreamNamePrefix = aws.String(c.Prefix)
 	}
 
 	return &input
 }
 
-func (c *Configuration) FilterLogEventsInput() *cloudwatchlogs.FilterLogEventsInput {
+func (c *Configuration) FilterLogEventsInput() (*cloudwatchlogs.FilterLogEventsInput, error) {
 	input := cloudwatchlogs.FilterLogEventsInput{}
-	input.SetInterleaved(true)
-	input.SetLogGroupName(c.Group)
+	input.LogGroupName = aws.String(c.Group)
 
-	if len(c.Streams) != 0 {
-		input.SetLogStreamNames(c.TopStreamNames())
+	if c.Prefix != "" {
+		input.LogStreamNamePrefix = aws.String(c.Prefix)
 	}
 
 	currentTime := time.Now()
 	absoluteStartTime := currentTime
 	if c.Start != "" {
-		st, err := getTime(c.Start, currentTime)
-		if err == nil {
-			absoluteStartTime = st
+		st, err := ParseTime(c.Start, currentTime)
+		if err != nil {
+			return nil, fmt.Errorf("--start %q: %v", c.Start, err)
 		}
+		absoluteStartTime = st
 	}
-	input.SetStartTime(aws.TimeUnixMilli(absoluteStartTime))
+	input.StartTime = aws.Int64(absoluteStartTime.UnixMilli())
 
 	if c.End != "" {
-		et, err := getTime(c.End, currentTime)
-		if err == nil {
-			input.SetEndTime(aws.TimeUnixMilli(et))
+		et, err := ParseTime(c.End, currentTime)
+		if err != nil {
+			return nil, fmt.Errorf("--stop %q: %v", c.End, err)
 		}
+		input.EndTime = aws.Int64(et.UnixMilli())
 	}
 
 	if c.Filter != "" {
-		input.SetFilterPattern(c.Filter)
+		input.FilterPattern = aws.String(c.Filter)
 	}
 
-	return &input
-}
-
-func (c *Configuration) TopStreamNames() []*string {
-	// FilerLogEvents can only take 100 streams so lets sort by LastEventTimestamp
-	// (descending) and take only the names of the most recent 100.
-	sort.Slice(c.Streams, func(i int, j int) bool {
-		return *c.Streams[i].LastEventTimestamp > *c.Streams[j].LastEventTimestamp
-	})
-
-	numStreams := 100
-
-	if len(c.Streams) < 100 {
-		numStreams = len(c.Streams)
-	}
-
-	streamNames := make([]*string, 0)
-
-	for _, stream := range c.Streams[:numStreams] {
-		streamNames = append(streamNames, stream.LogStreamName)
-	}
-
-	return streamNames
+	return &input, nil
 }

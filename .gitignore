@@ -1,3 +1,4 @@
 vendor
 dist
-saw
+/cloudtail
+.claude/

@@ -2,11 +2,8 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
-	"os"
 
-	"github.com/TylerBrock/saw/blade"
-	"github.com/TylerBrock/saw/config"
+	"github.com/joshskidmore/cloudtail/config"
 	"github.com/spf13/cobra"
 )
 
@@ -25,36 +22,31 @@ var getCommand = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		getConfig.Group = args[0]
-		b := blade.NewBlade(&getConfig, &awsConfig, &getOutputConfig)
-		if getConfig.Prefix != "" {
-			streams := b.GetLogStreams()
-			if len(streams) == 0 {
-				fmt.Printf("No streams found in %s with prefix %s\n", getConfig.Group, getConfig.Prefix)
-				fmt.Printf("To view available streams: `saw streams %s`\n", getConfig.Group)
-				os.Exit(3)
-			}
-			getConfig.Streams = streams
+		b := newClient(cmd.Context(), &getConfig, &getOutputConfig)
+		if err := b.GetEvents(cmd.Context()); err != nil {
+			fatal(err)
 		}
-		b.GetEvents()
 	},
 }
 
 func init() {
-	getCommand.Flags().StringVar(&getConfig.Prefix, "prefix", "", "log group prefix filter")
+	getCommand.Flags().StringVar(&getConfig.Prefix, "prefix", "", "log stream prefix filter")
 	getCommand.Flags().StringVar(
 		&getConfig.Start,
 		"start",
 		"",
 		`start getting the logs from this point
 Takes an absolute timestamp in RFC3339 format, or a relative time (eg. -2h).
+Times without a zone (eg. 2018-06-26 12:00:00) are local time.
 Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".`,
 	)
 	getCommand.Flags().StringVar(
 		&getConfig.End,
 		"stop",
-		"now",
+		"",
 		`stop getting the logs at this point
 Takes an absolute timestamp in RFC3339 format, or a relative time (eg. -2h).
+Times without a zone (eg. 2018-06-26 12:00:00) are local time.
 Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".`,
 	)
 	getCommand.Flags().StringVar(&getConfig.Filter, "filter", "", "event filter pattern")

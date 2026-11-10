@@ -3,8 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/TylerBrock/saw/blade"
-	"github.com/TylerBrock/saw/config"
+	"github.com/joshskidmore/cloudtail/config"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +15,11 @@ var groupsCommand = &cobra.Command{
 	Short: "List log groups",
 	Long:  "",
 	Run: func(cmd *cobra.Command, args []string) {
-		b := blade.NewBlade(&groupsConfig, &awsConfig, nil)
-		logGroups := b.GetLogGroups()
+		b := newClient(cmd.Context(), &groupsConfig, nil)
+		logGroups, err := b.GetLogGroups(cmd.Context())
+		if err != nil {
+			fatal(err)
+		}
 		for _, group := range logGroups {
 			fmt.Println(*group.LogGroupName)
 		}
